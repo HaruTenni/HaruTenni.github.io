@@ -1,0 +1,1473 @@
+<!doctype html>
+<html lang="ja">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>ダーツの旅 - JAPAN</title>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;600;800&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --bg1: #0ea5e9;
+            --bg2: #8b5cf6;
+            --glass: rgba(255, 255, 255, .16);
+            --glass-strong: rgba(255, 255, 255, .22);
+            --border: rgba(255, 255, 255, .35);
+            --chip-border: rgba(0, 0, 0, .10);
+            --chip-off-bg: #f3f4f6;
+            --accent: #22c55e;
+
+            --pin-in: 1.6s;
+            --ping: 2.2s;
+            --sheet: .70s;
+        }
+
+        * {
+            box-sizing: border-box
+        }
+
+        html,
+        body {
+            height: 100%
+        }
+
+        body {
+            margin: 0;
+            font-family: "Noto Sans JP", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
+            color: #07111f;
+            background:
+                radial-gradient(1200px 800px at 10% 10%, rgba(255, 255, 255, .35), transparent 60%),
+                radial-gradient(1200px 800px at 90% 90%, rgba(255, 255, 255, .28), transparent 60%),
+                linear-gradient(135deg, var(--bg1), var(--bg2));
+            overflow: hidden;
+        }
+
+        .app {
+            display: grid;
+            grid-template-columns: 360px 1fr;
+            gap: 18px;
+            height: 100%;
+            padding: 18px;
+        }
+
+        .panel {
+            height: 100%;
+            backdrop-filter: blur(14px) saturate(120%);
+            background: var(--glass);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, .18), inset 0 1px 0 rgba(255, 255, 255, .25);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            padding: 18px 18px 10px;
+            border-bottom: 1px dashed rgba(255, 255, 255, .35);
+        }
+
+        .title {
+            font-size: 22px;
+            font-weight: 800;
+            letter-spacing: .02em;
+            color: #fff;
+            text-shadow: 0 2px 12px rgba(0, 0, 0, .25);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .sparkle {
+            width: 20px;
+            height: 20px;
+            display: inline-block;
+            filter: drop-shadow(0 0 6px rgba(255, 255, 255, .8));
+            background: radial-gradient(circle at 50% 50%, #fff, #fff0 60%),
+                radial-gradient(circle at 75% 25%, #fff, #fff0 50%),
+                radial-gradient(circle at 25% 75%, #fff, #fff0 50%);
+            mask: conic-gradient(from 0deg, #000 0 10deg, #0000 10deg 20deg) 50% 50%/100% 100% repeat;
+            animation: twink 2.4s linear infinite;
+        }
+
+        @keyframes twink {
+            0% {
+                transform: rotate(0deg) scale(1)
+            }
+
+            50% {
+                transform: rotate(180deg) scale(1.2)
+            }
+
+            100% {
+                transform: rotate(360deg) scale(1)
+            }
+        }
+
+        .panel-body {
+            padding: 14px 16px 16px;
+            overflow: auto
+        }
+
+        .chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .section-label {
+            margin: 12px 0 6px;
+            font-weight: 800;
+            font-size: 12px;
+            letter-spacing: .07em;
+            color: #f8fafc;
+            text-shadow: 0 1px 8px rgba(0, 0, 0, .25)
+        }
+
+        .chip {
+            appearance: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 12px;
+            border-radius: 999px;
+            background: #fff;
+            border: 1px solid var(--chip-border);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, .08);
+            cursor: pointer;
+            user-select: none;
+            transition: transform .12s, box-shadow .12s, background .12s, opacity .12s, filter .12s;
+        }
+
+        .chip input {
+            display: none
+        }
+
+        .chip .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #cbd5e1;
+            box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .25);
+        }
+
+        .chip[data-checked="true"] {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, .12);
+            opacity: 1;
+            background: #fff;
+        }
+
+        .chip[data-checked="false"] {
+            background: var(--chip-off-bg);
+            opacity: .48;
+            filter: saturate(70%);
+            box-shadow: 0 4px 10px rgba(0, 0, 0, .06);
+        }
+
+        .chip[data-checked="true"] .dot {
+            background: var(--accent);
+        }
+
+        .actions {
+            margin-top: 16px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            appearance: none;
+            border: 0;
+            cursor: pointer;
+            padding: 14px 18px;
+            border-radius: 14px;
+            font-weight: 700;
+            letter-spacing: .02em;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 10px 24px rgba(0, 0, 0, .18), inset 0 1px 0 rgba(255, 255, 255, .6);
+            transition: transform .12s, box-shadow .12s, filter .12s;
+            color: #0b1020;
+        }
+
+        .btn-throw {
+            background: linear-gradient(135deg, #fff, #e2f8f0);
+            border: 1px solid rgba(0, 0, 0, .08);
+        }
+
+        .btn[disabled] {
+            opacity: .5;
+            cursor: not-allowed;
+        }
+
+        .btn:hover:not([disabled]) {
+            transform: translateY(-2px);
+            box-shadow: 0 16px 28px rgba(0, 0, 0, .2)
+        }
+
+        .btn:active:not([disabled]) {
+            transform: translateY(0);
+            box-shadow: 0 10px 24px rgba(0, 0, 0, .18)
+        }
+
+        .hint {
+            font-size: 12px;
+            opacity: .85;
+            margin-left: auto;
+            color: #082238;
+            backdrop-filter: blur(10px);
+            padding: 6px 10px;
+            border-radius: 999px;
+            background: #ffffffc9;
+            border: 1px solid rgba(0, 0, 0, .06)
+        }
+
+        .map-wrap {
+            position: relative;
+            border-radius: 20px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, .2), inset 0 1px 0 rgba(255, 255, 255, .25);
+            background: #dce9ff;
+            min-height: 60vh;
+        }
+
+        #map {
+            position: absolute;
+            inset: 0
+        }
+
+        .leaflet-control-zoom {
+            border-radius: 12px;
+            overflow: hidden
+        }
+
+        .leaflet-control-zoom a {
+            font-weight: 800
+        }
+
+        /* ▼ 結果シート */
+        .sheet {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            transform: translateY(110%);
+            transition: transform var(--sheet) cubic-bezier(.2, .8, .2, 1);
+            padding: 16px;
+            pointer-events: none;
+            z-index: 1000;
+        }
+
+        .sheet-inner {
+            pointer-events: auto;
+            margin: 0 auto;
+            max-width: 900px;
+            background: var(--glass-strong);
+            border: 1px solid var(--border);
+            backdrop-filter: blur(14px) saturate(120%);
+            border-radius: 20px;
+            padding: 14px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, .25), inset 0 1px 0 rgba(255, 255, 255, .35);
+            max-height: 32vh;
+            overflow: auto;
+        }
+
+        @media (max-width: 1100px) {
+            .sheet-inner {
+                max-height: 38vh;
+            }
+        }
+
+        .sheet.show {
+            transform: translateY(0)
+        }
+
+        .sheet-header {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+            padding: 6px 8px 10px;
+            border-bottom: 1px dashed rgba(255, 255, 255, .4);
+            color: #fff;
+            text-shadow: 0 1px 10px rgba(0, 0, 0, .25);
+        }
+
+        .pill {
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: .06em;
+            color: #08384a;
+            background: #ffffffd9;
+            padding: 6px 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(0, 0, 0, .08)
+        }
+
+        .block-title {
+            margin-top: 14px;
+            color: #f8fafc;
+            font-weight: 800;
+            letter-spacing: .04em;
+        }
+
+        .spots {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-top: 8px
+        }
+
+        .foods {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-top: 8px
+        }
+
+        .card {
+            background: #ffffffde;
+            border: 1px solid rgba(0, 0, 0, .06);
+            border-radius: 14px;
+            padding: 12px;
+            box-shadow: 0 8px 18px rgba(0, 0, 0, .1);
+        }
+
+        .card h4 {
+            margin: 0 0 6px;
+            font-size: 14px
+        }
+
+        .card p {
+            margin: 0;
+            font-size: 12px;
+            opacity: .8
+        }
+
+        .card a {
+            color: #0e7490;
+            font-weight: 700;
+            text-decoration: none
+        }
+
+        .time {
+            font-weight: 700;
+            opacity: .95;
+            margin-top: 6px
+        }
+
+        .again {
+            background: linear-gradient(135deg, #fffafb, #ffe9bd);
+            border: 1px solid rgba(0, 0, 0, .08);
+        }
+
+        .decide {
+            background: linear-gradient(135deg, #e4f7ff, #d1ffd8);
+            border: 1px solid rgba(0, 0, 0, .08);
+        }
+
+        .admin {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-left: auto;
+        }
+
+        .admin .pill {
+            background: #fff;
+            color: #063042
+        }
+
+        .pin-wrap {
+            position: relative;
+            width: 60px;
+            height: 60px;
+            transform-origin: 50% 90%;
+            animation: dartIn var(--pin-in) cubic-bezier(.2, .8, .2, 1);
+            filter: drop-shadow(0 8px 16px rgba(0, 0, 0, .35));
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+        }
+
+        .pin-emoji {
+            font-size: 56px;
+            line-height: 1;
+        }
+
+        @keyframes dartIn {
+            0% {
+                transform: translate(-260px, -260px) rotate(-8deg) scale(.8)
+            }
+
+            70% {
+                transform: translate(0, 0) rotate(3deg) scale(1.08)
+            }
+
+            100% {
+                transform: translate(0, 0) rotate(0deg) scale(1)
+            }
+        }
+
+        .impact {
+            position: absolute;
+            left: 50%;
+            top: 92%;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ef4444aa;
+            transform: translate(-50%, -50%);
+            animation: ping var(--ping) ease-out forwards;
+        }
+
+        @keyframes ping {
+            0% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, .6)
+            }
+
+            100% {
+                box-shadow: 0 0 0 26px rgba(239, 68, 68, 0)
+            }
+        }
+
+        .confetti {
+            position: absolute;
+            pointer-events: none;
+            inset: 0;
+            overflow: hidden;
+            z-index: 900;
+        }
+
+        .confetti i {
+            position: absolute;
+            width: 8px;
+            height: 12px;
+            opacity: .9;
+            transform: translate(-50%, -50%) rotate(0deg);
+            animation: fall 1.8s linear forwards;
+        }
+
+        @keyframes fall {
+            0% {
+                transform: translate(var(--x), var(--y)) rotate(0deg)
+            }
+
+            100% {
+                transform: translate(calc(var(--x) + (var(--drift))), calc(var(--y) + 280px)) rotate(260deg)
+            }
+        }
+
+        .nominatim {
+            margin-top: 10px;
+            font-size: 11px;
+            opacity: .7
+        }
+
+        .nominatim a {
+            color: #0e7490;
+            text-decoration: none;
+        }
+
+        /* ▼ 詳細オーバーレイ（メインUIと統一） */
+        .detail {
+            position: fixed;
+            inset: 0;
+            display: none;
+            place-items: center;
+            z-index: 2000;
+        }
+
+        .detail.show {
+            display: grid;
+        }
+
+        .detail-card {
+            width: min(980px, 92vw);
+            max-height: 86vh;
+            overflow: auto;
+            background: var(--glass-strong);
+            border: 1px solid var(--border);
+            backdrop-filter: blur(14px) saturate(120%);
+            border-radius: 20px;
+            box-shadow: 0 30px 60px rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .35);
+            padding: 16px;
+        }
+
+        .detail-head {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+            border-bottom: 1px dashed rgba(255, 255, 255, .4);
+            padding-bottom: 10px;
+            color: #fff;
+            text-shadow: 0 1px 10px rgba(0, 0, 0, .25);
+        }
+
+        .detail-title {
+            font-weight: 800;
+            font-size: 18px
+        }
+
+        .detail-close {
+            margin-left: auto;
+            appearance: none;
+            border: 0;
+            background: linear-gradient(135deg, #fff, #e2f8f0);
+            border: 1px solid rgba(0, 0, 0, .08);
+            padding: 10px 12px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: 800;
+        }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: 1.2fr .8fr;
+            gap: 12px;
+            margin-top: 12px
+        }
+
+        .detail-box {
+            background: #ffffffde;
+            border: 1px solid rgba(0, 0, 0, .06);
+            border-radius: 14px;
+            padding: 12px;
+            box-shadow: 0 8px 18px rgba(0, 0, 0, .1);
+        }
+
+        .detail-box h4 {
+            margin: 0 0 6px;
+            font-size: 14px
+        }
+
+        .kv {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            font-size: 13px;
+        }
+
+        .btn-mini {
+            appearance: none;
+            border: 1px solid #e5e7eb;
+            background: #fff;
+            border-radius: 10px;
+            padding: 8px 10px;
+            font-weight: 700;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: #0b1020
+        }
+
+        .btn-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 6px
+        }
+
+        .hotel-links a {
+            margin-right: 6px
+        }
+
+        @media (max-width: 980px) {
+            .detail-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 1100px) {
+            .app {
+                grid-template-columns: 1fr;
+                grid-template-rows: 320px 1fr;
+            }
+
+            .panel {
+                order: 1
+            }
+
+            .map-wrap {
+                order: 2;
+                min-height: 50dvh
+            }
+
+            .spots,
+            .foods {
+                grid-template-columns: 1fr
+            }
+
+            .admin {
+                width: 100%
+            }
+        }
+
+        /* 追加：天気カード見た目 */
+        .wx-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 8px
+        }
+
+        .wx-card {
+            background: #fff;
+            border: 1px solid rgba(0, 0, 0, .06);
+            border-radius: 12px;
+            padding: 10px 12px;
+            box-shadow: 0 6px 14px rgba(0, 0, 0, .08);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 13px;
+        }
+
+        .wx-emoji {
+            font-size: 18px
+        }
+
+        .wx-date {
+            font-weight: 800
+        }
+
+        .wx-temp {
+            font-weight: 700
+        }
+
+        .wx-now {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+            background: #ffffffde;
+            border: 1px solid rgba(0, 0, 0, .06);
+            padding: 10px 12px;
+            border-radius: 12px;
+            box-shadow: 0 6px 14px rgba(0, 0, 0, .08);
+            margin-top: 6px
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app">
+        <aside class="panel">
+            <div class="panel-header">
+                <div class="title"><span class="sparkle"></span> ダーツの旅 - JAPAN</div>
+            </div>
+            <div class="panel-body">
+                <div style="font-size:13px; opacity:.9; margin-bottom:8px; color:#04202f;">行き先にしたい「地方」を選んでから、ダーツを投げよう！
+                </div>
+                <div class="chips" id="regionChips"></div>
+
+                <div class="section-label">雰囲気</div>
+                <div class="chips" id="vibeChips"></div>
+
+                <div class="section-label">立地</div>
+                <div class="chips" id="locChips"></div>
+
+                <div class="actions">
+                    <button class="btn btn-throw" id="throwBtn" disabled>🎯 読み込み中…</button>
+                    <span class="hint" id="hint">地方を選択してください</span>
+                </div>
+            </div>
+        </aside>
+
+        <section class="map-wrap">
+            <div id="map"></div>
+            <div class="confetti" id="confetti"></div>
+            <div class="sheet" id="sheet">
+                <div class="sheet-inner">
+                    <div class="sheet-header">
+                        <span class="pill" id="pickedRegion">—</span>
+                        <div style="color:#fff; font-weight:800; font-size:18px; letter-spacing:.02em;">
+                            <span id="pickedPref">—</span> のおすすめスポット
+                        </div>
+                        <div class="admin" id="adminPath"></div>
+                        <div style="display:flex; gap:8px; margin-left:auto">
+                            <button class="btn again" id="againBtn">もう一投！</button>
+                            <button class="btn decide" id="decideBtn">行き先決定！</button>
+                        </div>
+                    </div>
+
+                    <div class="block-title">観光地</div>
+                    <div class="spots" id="spots"></div>
+
+                    <div class="block-title">ご当地グルメ</div>
+                    <div class="foods" id="foods"></div>
+
+                    <div class="nominatim" id="nominatimAttribution" hidden>
+                        住所/地名/ルーティング: © <a href="https://www.openstreetmap.org/copyright" target="_blank"
+                            rel="noreferrer">OpenStreetMap</a> / <a href="https://nominatim.org/" target="_blank"
+                            rel="noreferrer">Nominatim</a> / <a href="http://project-osrm.org/" target="_blank"
+                            rel="noreferrer">OSRM</a>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- 詳細ページ（オーバーレイ） -->
+    <div class="detail" id="detail">
+        <div class="detail-card">
+            <div class="detail-head">
+                <div class="detail-title">行き先 詳細情報</div>
+                <button class="detail-close" id="detailClose">閉じる</button>
+            </div>
+            <div class="detail-grid">
+                <div class="detail-box">
+                    <h4>東京駅からの行き方・所要時間</h4>
+                    <div class="kv" id="routeInfo">
+                        <div>🚗 車（概算）: 計算中…</div>
+                    </div>
+                    <div class="btn-row" id="routeLinks"></div>
+                    <div style="font-size:12px; opacity:.7; margin-top:6px">※ 車の所要時間はOSRMベースの概算です。実際の交通状況で変動します。</div>
+                </div>
+                <div class="detail-box">
+                    <h4>周辺の宿（Rakuten Travel / Airbnb）</h4>
+                    <div class="hotel-links" id="hotelLinks"></div>
+                    <div style="font-size:12px; opacity:.7; margin-top:6px">※ 各サイトの検索仕様/並び順に依存します。</div>
+                </div>
+            </div>
+
+            <div class="detail-box" style="margin-top:12px">
+                <h4>エリア情報</h4>
+                <div class="kv" id="areaInfo">取得中…</div>
+            </div>
+
+            <div class="detail-box" id="weatherBox" style="margin-top:12px">
+                <h4>天気と気候（現在＋3日）</h4>
+                <div id="weatherNow" class="wx-now">取得中…</div>
+                <div id="weatherDaily" class="wx-row"></div>
+                <div style="font-size:11px; opacity:.65; margin-top:6px">※ Open‑Meteo の無料APIを利用（キー不要）</div>
+            </div>
+
+            <div class="detail-box" id="snsBox" style="margin-top:12px">
+                <h4>SNS（Instagram ハッシュタグ）</h4>
+                <div class="btn-row" id="snsLinks"></div>
+                <div style="font-size:11px; opacity:.65; margin-top:6px">※ クリックでInstagramのハッシュタグページを新規タブで開きます。</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /* ====== 設定 ====== */
+        const CONTACT_EMAIL = "";
+        const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+        /* ===== 演出テンポ ===== */
+        const TIMING = {
+            flyOutMs: 3000,
+            pauseAfterOut: 1000,
+            flyToRegionMs: 2800,
+            pauseBeforePin: 500,
+            pinDropMs: 1600,
+            zoomToPrefMs: 3400,
+            zoomToPinMs: 3600,
+            sheetDelayMs: 750,
+            confettiCount: 8
+        };
+
+        /* ========= データ ========= */
+        const REGIONS = [
+            { id: '北海道', color: '#60a5fa' },
+            { id: '東北', color: '#34d399' },
+            { id: '関東', color: '#f59e0b' },
+            { id: '中部', color: '#a78bfa' },
+            { id: '近畿', color: '#f472b6' },
+            { id: '中国', color: '#22c55e' },
+            { id: '四国', color: '#06b6d4' },
+            { id: '九州・沖縄', color: '#fb7185' },
+        ];
+
+        const PREFS = [
+            P('北海道', '北海道', 43.064, 141.346, ['知床半島', '小樽運河', '旭山動物園']),
+            P('青森', '東北', 40.824, 140.740, ['十和田湖', '奥入瀬渓流', '三内丸山遺跡']),
+            P('岩手', '東北', 39.703, 141.152, ['中尊寺', '浄土ヶ浜', '小岩井農場']),
+            P('宮城', '東北', 38.268, 140.871, ['松島', '仙台城跡', '秋保温泉']),
+            P('秋田', '東北', 39.719, 140.103, ['角館武家屋敷', '男鹿半島', '乳頭温泉郷']),
+            P('山形', '東北', 38.255, 140.339, ['山寺（立石寺）', '銀山温泉', '蔵王ロープウェイ']),
+            P('福島', '東北', 37.750, 140.467, ['大内宿', '五色沼', '鶴ヶ城']),
+            P('茨城', '関東', 36.341, 140.446, ['国営ひたち海浜公園', '袋田の滝', '偕楽園']),
+            P('栃木', '関東', 36.565, 139.883, ['日光東照宮', '華厳の滝', '那須高原']),
+            P('群馬', '関東', 36.391, 139.060, ['草津温泉', '伊香保温泉', '谷川岳']),
+            P('埼玉', '関東', 35.861, 139.645, ['川越蔵造りの町並み', '秩父神社', '鉄道博物館']),
+            P('千葉', '関東', 35.607, 140.106, ['成田山新勝寺', '南房総', '東京ディズニーリゾート']),
+            P('東京', '関東', 35.682, 139.759, ['浅草寺', '明治神宮', '東京スカイツリー']),
+            P('神奈川', '関東', 35.447, 139.642, ['みなとみらい', '鎌倉・長谷寺', '箱根神社']),
+            P('新潟', '中部', 37.916, 139.036, ['佐渡島', '越後湯沢', '弥彦神社']),
+            P('富山', '中部', 36.695, 137.213, ['立山黒部アルペンルート', '雨晴海岸', '瑞龍寺']),
+            P('石川', '中部', 36.561, 136.656, ['兼六園', 'ひがし茶屋街', '千里浜なぎさドライブウェイ']),
+            P('福井', '中部', 36.062, 136.224, ['東尋坊', '永平寺', '恐竜博物館']),
+            P('山梨', '中部', 35.664, 138.568, ['富士山五合目（吉田口）', '河口湖', 'ほったらかし温泉']),
+            P('長野', '中部', 36.651, 138.181, ['上高地', '松本城', '地獄谷野猿公苑']),
+            P('岐阜', '中部', 35.391, 136.722, ['白川郷', '下呂温泉', '高山・古い町並']),
+            P('静岡', '中部', 34.976, 138.383, ['富士宮浅間大社', '熱海温泉', '三保の松原']),
+            P('愛知', '中部', 35.181, 136.906, ['名古屋城', '熱田神宮', '犬山城']),
+            P('三重', '近畿', 34.730, 136.508, ['伊勢神宮', 'おかげ横丁', '鳥羽水族館']),
+            P('滋賀', '近畿', 35.017, 135.854, ['彦根城', 'びわ湖テラス', '近江八幡']),
+            P('京都', '近畿', 35.011, 135.768, ['清水寺', '金閣寺', '伏見稲荷大社']),
+            P('大阪', '近畿', 34.693, 135.502, ['大阪城', '道頓堀', 'ユニバーサル・スタジオ・ジャパン']),
+            P('兵庫', '近畿', 34.690, 135.195, ['姫路城', '北野異人館', '有馬温泉']),
+            P('奈良', '近畿', 34.685, 135.805, ['東大寺', '春日大社', '奈良公園（鹿）']),
+            P('和歌山', '近畿', 34.230, 135.170, ['熊野古道', '白浜', '高野山']),
+            P('鳥取', '中国', 35.501, 134.235, ['鳥取砂丘', '三徳山三佛寺', '皆生温泉']),
+            P('島根', '中国', 35.472, 133.050, ['出雲大社', '足立美術館', '玉造温泉']),
+            P('岡山', '中国', 34.656, 133.919, ['倉敷美観地区', '後楽園', '鷲羽山展望台']),
+            P('広島', '中国', 34.385, 132.455, ['厳島神社（宮島）', '原爆ドーム', '尾道']),
+            P('山口', '中国', 34.185, 131.471, ['角島大橋', '秋吉台・秋芳洞', '元乃隅神社']),
+            P('徳島', '四国', 34.070, 134.554, ['大歩危・小歩危', '祖谷のかずら橋', '鳴門の渦潮']),
+            P('香川', '四国', 34.342, 134.046, ['直島（アート）', '栗林公園', '小豆島エンジェルロード']),
+            P('愛媛', '四国', 33.841, 132.766, ['道後温泉', '松山城', 'しまなみ海道']),
+            P('高知', '四国', 33.559, 133.531, ['ひろめ市場', '四万十川', '桂浜']),
+            P('福岡', '九州・沖縄', 33.590, 130.401, ['太宰府天満宮', 'キャナルシティ博多', '糸島']),
+            P('佐賀', '九州・沖縄', 33.249, 130.298, ['吉野ヶ里遺跡', '武雄温泉', '呼子朝市']),
+            P('長崎', '九州・沖縄', 32.750, 129.877, ['グラバー園', '平和公園', '五島列島']),
+            P('熊本', '九州・沖縄', 32.789, 130.741, ['熊本城', '黒川温泉', '阿蘇山']),
+            P('大分', '九州・沖縄', 33.239, 131.609, ['別府地獄めぐり', '由布院', '国東半島']),
+            P('宮崎', '九州・沖縄', 31.911, 131.423, ['高千穂峡', '青島神社', '鵜戸神宮']),
+            P('鹿児島', '九州・沖縄', 31.596, 130.557, ['桜島', '霧島神宮', '屋久島']),
+            P('沖縄', '九州・沖縄', 26.212, 127.681, ['美ら海水族館', '斎場御嶽', '古宇利大橋']),
+        ];
+        function P(name, region, lat, lng, spots) { return { name, region, lat, lng, spots }; }
+
+        /* ======= ご当地グルメ ======= */
+        const FOODS = {
+            '北海道': ['ジンギスカン', 'スープカレー', '海鮮丼'],
+            '青森': ['せんべい汁', '大間まぐろ', 'りんご'],
+            '岩手': ['わんこそば', 'じゃじゃ麺', '盛岡冷麺'],
+            '宮城': ['牛たん', 'ずんだ餅', '笹かまぼこ'],
+            '秋田': ['きりたんぽ', 'いぶりがっこ', '稲庭うどん'],
+            '山形': ['だし', '芋煮', '板そば'],
+            '福島': ['喜多方ラーメン', 'ソースカツ丼', 'ままどおる'],
+            '茨城': ['あんこう鍋', '水戸納豆', '干し芋'],
+            '栃木': ['宇都宮餃子', '佐野ラーメン', 'いちご'],
+            '群馬': ['水沢うどん', 'もつ煮', '焼きまんじゅう'],
+            '埼玉': ['肉汁うどん', '草加せんべい', '十万石まんじゅう'],
+            '千葉': ['なめろう', '落花生', '勝浦タンタンメン'],
+            '東京': ['江戸前寿司', 'もんじゃ焼き', '天ぷら'],
+            '神奈川': ['サンマーメン', '崎陽軒シウマイ', '生しらす丼'],
+            '新潟': ['へぎそば', 'タレカツ丼', '日本酒と肴'],
+            '富山': ['ます寿司', '白えび', 'ぶり'],
+            '石川': ['のどぐろ', '金沢カレー', '加賀野菜料理'],
+            '福井': ['越前そば', 'ソースカツ丼', '越前がに'],
+            '山梨': ['ほうとう', '信玄餅', '鳥もつ煮'],
+            '長野': ['信州そば', 'おやき', '野沢菜'],
+            '岐阜': ['飛騨牛', '朴葉味噌', '五平餅'],
+            '静岡': ['浜名湖うなぎ', '富士宮やきそば', '生しらす'],
+            '愛知': ['味噌カツ', 'ひつまぶし', '天むす'],
+            '三重': ['伊勢うどん', '松阪牛', '赤福'],
+            '滋賀': ['近江牛', '鮒寿司', '赤こんにゃく'],
+            '京都': ['湯豆腐', '抹茶', 'にしんそば'],
+            '大阪': ['たこ焼き', 'お好み焼き', '串カツ'],
+            '兵庫': ['神戸牛', '明石焼', 'そばめし'],
+            '奈良': ['柿の葉寿司', '三輪そうめん', '奈良漬'],
+            '和歌山': ['南高梅', '生まぐろ', '和歌山ラーメン'],
+            '鳥取': ['松葉がに', '牛骨ラーメン', '砂丘らっきょう'],
+            '島根': ['出雲そば', 'しじみ料理', 'のどぐろ'],
+            '岡山': ['ばらずし', 'デミカツ丼', 'きびだんご'],
+            '広島': ['広島風お好み焼き', '牡蠣', '汁なし担々麺'],
+            '山口': ['ふぐ', '瓦そば', '外郎'],
+            '徳島': ['阿波尾鶏', '徳島ラーメン', 'すだち料理'],
+            '香川': ['讃岐うどん', '骨付鳥', 'オリーブ牛'],
+            '愛媛': ['鯛めし', 'じゃこ天', 'みかん'],
+            '高知': ['かつおのたたき', '皿鉢料理', '田舎寿司'],
+            '福岡': ['博多ラーメン', 'もつ鍋', '明太子'],
+            '佐賀': ['呼子いか', '佐賀牛', 'シシリアンライス'],
+            '長崎': ['長崎ちゃんぽん', '皿うどん', 'カステラ'],
+            '熊本': ['馬刺し', '太平燕', '熊本ラーメン'],
+            '大分': ['とり天', 'だんご汁', 'りゅうきゅう'],
+            '宮崎': ['チキン南蛮', '地鶏炭火焼', 'マンゴー'],
+            '鹿児島': ['黒豚料理', 'しろくま', 'さつま揚げ'],
+            '沖縄': ['ソーキそば', 'タコライス', 'ラフテー'],
+        };
+
+        const TABELOG_PREF_SLUG = {
+            '北海道': 'hokkaido', '青森': 'aomori', '岩手': 'iwate', '宮城': 'miyagi', '秋田': 'akita', '山形': 'yamagata', '福島': 'fukushima',
+            '茨城': 'ibaraki', '栃木': 'tochigi', '群馬': 'gunma', '埼玉': 'saitama', '千葉': 'chiba', '東京': 'tokyo', '神奈川': 'kanagawa',
+            '新潟': 'niigata', '富山': 'toyama', '石川': 'ishikawa', '福井': 'fukui', '山梨': 'yamanashi', '長野': 'nagano', '岐阜': 'gifu',
+            '静岡': 'shizuoka', '愛知': 'aichi', '三重': 'mie',
+            '滋賀': 'shiga', '京都': 'kyoto', '大阪': 'osaka', '兵庫': 'hyogo', '奈良': 'nara', '和歌山': 'wakayama',
+            '鳥取': 'tottori', '島根': 'shimane', '岡山': 'okayama', '広島': 'hiroshima', '山口': 'yamaguchi',
+            '徳島': 'tokushima', '香川': 'kagawa', '愛媛': 'ehime', '高知': 'kochi',
+            '福岡': 'fukuoka', '佐賀': 'saga', '長崎': 'nagasaki', '熊本': 'kumamoto', '大分': 'oita', '宮崎': 'miyazaki', '鹿児島': 'kagoshima', '沖縄': 'okinawa'
+        };
+
+        /* ======= ラベル ======= */
+        const URBAN_PREFS = new Set(['東京', '神奈川', '千葉', '埼玉', '大阪', '兵庫', '京都', '愛知', '福岡', '宮城', '広島', '静岡', '茨城', '新潟', '岡山', '熊本']);
+        const COASTAL_PREFS = new Set(['北海道', '青森', '岩手', '宮城', '秋田', '山形', '福島', '茨城', '千葉', '東京', '神奈川', '新潟', '富山', '石川', '福井', '静岡', '愛知', '三重', '和歌山', '徳島', '香川', '愛媛', '高知', '福岡', '佐賀', '長崎', '熊本', '大分', '宮崎', '鹿児島', '沖縄', '山口', '鳥取', '島根']);
+
+        /* ========= 低頻度キュー & バックオフ ========= */
+        class Throttler { constructor(minIntervalMs) { this.minInterval = minIntervalMs; this._last = 0; this._chain = Promise.resolve(); } schedule(task) { this._chain = this._chain.then(async () => { const now = Date.now(); const wait = Math.max(0, this._last + this.minInterval - now); if (wait) await new Promise(r => setTimeout(r, wait)); this._last = Date.now(); return task(); }); return this._chain; } }
+        const throttlers = { nominatim: new Throttler(1200), osrm: new Throttler(300) };
+        async function fetchWithRetry(url, options = {}, { host = 'nominatim', retries = 3, baseDelay = 700 } = {}) {
+            const doFetch = () => fetch(url, options); const exec = () => throttlers[host].schedule(doFetch);
+            for (let i = 0; i <= retries; i++) {
+                try {
+                    const res = await exec();
+                    if (res.ok) return res;
+                    if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
+                        if (i === retries) return res; const jitter = Math.random() * 300; await new Promise(r => setTimeout(r, baseDelay * Math.pow(2, i) + jitter)); continue;
+                    }
+                    return res;
+                } catch (e) {
+                    if (i === retries) throw e; const jitter = Math.random() * 300; await new Promise(r => setTimeout(r, baseDelay * Math.pow(2, i) + jitter));
+                }
+            }
+        }
+
+        /* ========= キャッシュ ========= */
+        const memCache = new Map();
+        function cacheKey(prefix, obj) { return prefix + ":" + JSON.stringify(obj); }
+        function getLocalCache(key) { try { const raw = localStorage.getItem(key); if (!raw) return null; const { ts, value } = JSON.parse(raw); if (Date.now() - ts > CACHE_TTL_MS) { localStorage.removeItem(key); return null; } return value; } catch { return null; } }
+        function setLocalCache(key, value) { try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), value })); } catch { } }
+
+        /* ========= 逆ジオ/ジオ/ルート ========= */
+        const UA_HDR = { 'User-Agent': 'DartsNoTabi/1.0 (+demo)' };
+        function emailParam() { return CONTACT_EMAIL ? `&email=${encodeURIComponent(CONTACT_EMAIL)}` : ''; }
+
+        async function geocodeJa(text) {
+            const key = cacheKey('geo', { text }); if (memCache.has(key)) return memCache.get(key);
+            const lc = getLocalCache(key); if (lc) { memCache.set(key, lc); return lc; }
+            const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=jp&accept-language=ja&q=${encodeURIComponent(text)}${emailParam()}`;
+            const res = await fetchWithRetry(url, { headers: UA_HDR }, { host: 'nominatim', retries: 3, baseDelay: 900 });
+            if (!res.ok) { memCache.set(key, null); return null; }
+            const arr = await res.json(); const hit = arr && arr[0] ? { lat: +arr[0].lat, lng: +arr[0].lon } : null;
+            memCache.set(key, hit); setLocalCache(key, hit); return hit;
+        }
+        async function reverseGeocodeJa(lat, lng) {
+            const rlat = Math.round(lat * 20000) / 20000, rlng = Math.round(lng * 20000) / 20000;
+            const key = cacheKey('rev', { lat: rlat, lng: rlng }); if (memCache.has(key)) return memCache.get(key);
+            const lc = getLocalCache(key); if (lc) { memCache.set(key, lc); return lc; }
+            const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${rlat}&lon=${rlng}&zoom=18&addressdetails=1&accept-language=ja${emailParam()}`;
+            const res = await fetchWithRetry(url, { headers: UA_HDR }, { host: 'nominatim', retries: 3, baseDelay: 900 });
+            if (!res.ok) { memCache.set(key, {}); return {}; }
+            const data = await res.json(); const addr = data.address || {};
+            memCache.set(key, addr); setLocalCache(key, addr); return addr;
+        }
+        async function driveDurationSeconds(origin, dest) {
+            const key = cacheKey('osrm', { o: origin, d: dest }); if (memCache.has(key)) return memCache.get(key);
+            const url = `https://router.project-osrm.org/route/v1/driving/${dest.lng},${dest.lat};${origin.lng},${origin.lat}?overview=false&alternatives=false&annotations=duration`;
+            const res = await fetchWithRetry(url, {}, { host: 'osrm', retries: 2, baseDelay: 700 });
+            if (!res.ok) { memCache.set(key, null); return null; }
+            const data = await res.json(); const sec = data?.routes?.[0]?.duration ?? null; memCache.set(key, sec); return sec;
+        }
+        async function driveInfo(origin, dest) {
+            const key = cacheKey('osrm2', { o: origin, d: dest }); if (memCache.has(key)) return memCache.get(key);
+            const url = `https://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.lat};${dest.lng},${dest.lat}?overview=false`;
+            const res = await fetchWithRetry(url, {}, { host: 'osrm', retries: 2, baseDelay: 700 });
+            if (!res.ok) { memCache.set(key, null); return null; }
+            const data = await res.json();
+            const r = data?.routes?.[0]; const out = r ? { duration: r.duration, distance: r.distance } : null;
+            memCache.set(key, out); return out;
+        }
+        function fmtMinutes(sec) { if (sec == null) return '—'; const m = Math.round(sec / 60); if (m < 60) return `${m}分`; const h = Math.floor(m / 60), mm = m % 60; return mm ? `${h}時間${mm}分` : `${h}時間`; }
+        function fmtKm(m) { if (m == null) return '—'; const km = m / 1000; return (km < 100) ? `${km.toFixed(1)}km` : `${Math.round(km)}km`; }
+
+        /* ========= UI生成 ========= */
+        const regionChipsEl = document.getElementById('regionChips');
+        const vibeChipsEl = document.getElementById('vibeChips');
+        const locChipsEl = document.getElementById('locChips');
+
+        try {
+            renderRegionChips(); renderExtraFilters(); updateHint();
+        } catch (e) {
+            console.error('Init UI error:', e);
+        }
+
+        function renderRegionChips() {
+            const all = chipEl('すべて選択', '#10b981', true, true); all.classList.add('select-all'); regionChipsEl.appendChild(all);
+            REGIONS.forEach(r => regionChipsEl.appendChild(chipEl(r.id, r.color, true, false, r.id)));
+            regionChipsEl.addEventListener('click', e => {
+                const lab = e.target.closest('.chip'); if (!lab) return; e.preventDefault(); e.stopPropagation();
+                if (lab.classList.contains('select-all')) {
+                    const now = !(lab.dataset.checked === 'true'); setChip(lab, now);
+                    regionChipsEl.querySelectorAll('.chip:not(.select-all)').forEach(c => setChip(c, now));
+                } else {
+                    setChip(lab, !(lab.dataset.checked === 'true'));
+                    const everyOn = Array.from(regionChipsEl.querySelectorAll('.chip:not(.select-all) input')).every(i => i.checked);
+                    setChip(regionChipsEl.querySelector('.select-all'), everyOn);
+                }
+                updateHint();
+            });
+        }
+        function renderExtraFilters() {
+            vibeChipsEl.appendChild(chipEl('都心', '#f97316', false, false, 'urban'));
+            vibeChipsEl.appendChild(chipEl('自然', '#22c55e', false, false, 'nature'));
+            vibeChipsEl.addEventListener('click', e => {
+                const lab = e.target.closest('.chip'); if (!lab) return; e.preventDefault();
+                const now = !(lab.dataset.checked === 'true'); Array.from(vibeChipsEl.querySelectorAll('.chip')).forEach(c => setChip(c, false)); setChip(lab, now); updateHint();
+            });
+            locChipsEl.appendChild(chipEl('海沿い', '#0ea5e9', false, false, 'coastal'));
+            locChipsEl.appendChild(chipEl('内陸', '#a78bfa', false, false, 'inland'));
+            locChipsEl.addEventListener('click', e => {
+                const lab = e.target.closest('.chip'); if (!lab) return; e.preventDefault();
+                const now = !(lab.dataset.checked === 'true'); Array.from(locChipsEl.querySelectorAll('.chip')).forEach(c => setChip(c, false)); setChip(lab, now); updateHint();
+            });
+        }
+        function chipEl(label, color, checked = false, isAll = false, value = '') {
+            const lab = document.createElement('label'); lab.className = 'chip'; lab.dataset.checked = String(checked); if (value) lab.dataset.value = value;
+            lab.innerHTML = `<input type="checkbox" ${checked ? 'checked' : ''} ${isAll ? 'aria-label="すべて選択"' : ''} value="${value}">
+                 <span class="dot" style="background:${color}"></span>${label}`;
+            return lab;
+        }
+        function setChip(el, on) { el.dataset.checked = String(on); const input = el.querySelector('input'); if (input) input.checked = on; }
+
+        function getSelectedRegions() { return Array.from(regionChipsEl.querySelectorAll('.chip:not(.select-all) input')).filter(i => i.checked).map(i => i.value); }
+        function getVibe() { const on = vibeChipsEl.querySelector('.chip[data-checked="true"]'); return on ? on.dataset.value : null; }
+        function getLocation() { const on = locChipsEl.querySelector('.chip[data-checked="true"]'); return on ? on.dataset.value : null; }
+        function updateHint() {
+            const r = getSelectedRegions(); const vibe = getVibe(); const loc = getLocation(); const tags = [];
+            if (vibe === 'urban') tags.push('都心'); else if (vibe === 'nature') tags.push('自然');
+            if (loc === 'coastal') tags.push('海沿い'); else if (loc === 'inland') tags.push('内陸');
+            document.getElementById('hint').textContent = r.length ? `選択：${r.join('・')}${tags.length ? '／' + tags.join('・') : ''}` : '地方を選択してください';
+        }
+
+        /* ========= マップ ========= */
+        const map = L.map('map', { zoomControl: true, scrollWheelZoom: true, preferCanvas: true, zoomSnap: 0.25, zoomDelta: 0.25, wheelDebounceTime: 40, wheelPxPerZoomLevel: 80 }).setView([35.6, 139.6], 5);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '&copy; OpenStreetMap', updateWhenZooming: false, keepBuffer: 3, detectRetina: true }).addTo(map);
+
+        /* 📍ピン */
+        function makeDartIcon() { return L.divIcon({ className: '', html: `<div class="pin-wrap"><div class="pin-emoji" aria-hidden="true">📍</div><span class="impact"></span></div>`, iconSize: [60, 60], iconAnchor: [30, 55] }); }
+        let marker = null;
+
+        /* ========= 都道府県GeoJSON（描画しない） ========= */
+        const PREF_GEO_URL = "https://raw.githubusercontent.com/piuccio/open-data-jp-prefectures-geojson/master/output/prefectures.geojson";
+        let PREF_FEATURES = []; const norm = s => s.replace(/(都|道|府|県)$/, '');
+        function toFullJP(base) { if (base === '北海道') return '北海道'; if (base === '東京') return '東京都'; if (base === '大阪') return '大阪府'; if (base === '京都') return '京都府'; return base + '県'; }
+        const NAME_TO_REGION = new Map(PREFS.map(p => [p.name, p.region]));
+        function nearestPrefBaseName(lng, lat) { let best = null, d2min = Infinity; for (const p of PREFS) { const d2 = (p.lat - lat) ** 2 + (p.lng - lng) ** 2; if (d2 < d2min) { d2min = d2; best = p; } } return best ? best.name : null; }
+
+        (async function loadPrefectures() {
+            try {
+                const gj = await (await fetch(PREF_GEO_URL)).json();
+                PREF_FEATURES = (gj.features || []).map(f => {
+                    const props = f.properties || {};
+                    let nameJP = props.nam_ja || props.name_ja || props.kanji || props.pref || props.name || '';
+                    const hasJP = /[\u3040-\u30ff\u3400-\u9fff]/.test(String(nameJP)); if (!hasJP) nameJP = '';
+                    let base;
+                    if (nameJP) { base = norm(nameJP); }
+                    else { const c = turf.centroid(f).geometry.coordinates; base = nearestPrefBaseName(c[0], c[1]) || ''; nameJP = toFullJP(base); }
+                    const region = NAME_TO_REGION.get(base) || null;
+
+                    // 外周だけ（海側判定向け）
+                    const boundaryLines = [];
+                    const geom = f.geometry;
+                    if (geom.type === 'Polygon') {
+                        const outer = geom.coordinates[0];
+                        boundaryLines.push(turf.lineString(outer));
+                    } else if (geom.type === 'MultiPolygon') {
+                        geom.coordinates.forEach(poly => {
+                            const outer = poly[0];
+                            boundaryLines.push(turf.lineString(outer));
+                        });
+                    }
+
+                    f._bbox = turf.bbox(f);
+                    f._center = turf.centerOfMass(f).geometry.coordinates;
+                    f._baseName = base;
+                    f._nameJP = /(都|道|府|県)$/.test(nameJP) ? nameJP : toFullJP(base);
+                    f._region = region;
+                    f._boundaryLines = boundaryLines;
+                    return f;
+                });
+                const btn = document.getElementById('throwBtn'); btn.disabled = false; btn.textContent = '🎯 ダーツを投げる';
+            } catch (e) {
+                console.error('Failed to load prefectures GeoJSON', e);
+                const btn = document.getElementById('throwBtn'); btn.disabled = true; btn.textContent = '読み込み失敗（再読込してください）';
+            }
+        })();
+
+        /* ========= Japan内判定 ========= */
+        function isInAnyPref(pt) { for (const f of PREF_FEATURES) { if (turf.booleanPointInPolygon(pt, f)) return true; } return false; }
+        function isSeaSideForFeature(feature, pt) {
+            let nearest = null, best = Infinity;
+            for (const line of feature._boundaryLines) {
+                const np = turf.nearestPointOnLine(line, pt, { units: 'kilometers' }); const d = np.properties.dist;
+                if (d < best) { best = d; nearest = np; }
+            }
+            if (!nearest) return false;
+            const pB = nearest.geometry.coordinates;
+            const pT = pt.geometry.coordinates;
+            const v = [pB[0] - pT[0], pB[1] - pT[1]];
+            const len = Math.hypot(v[0], v[1]); if (len === 0) return false;
+            const unit = [v[0] / len, v[1] / len];
+            const step = 1 / 111; // 約1km
+            const pOut = [pB[0] + unit[0] * step, pB[1] + unit[1] * step];
+            const probe = turf.point(pOut);
+            return !isInAnyPref(probe);
+        }
+
+        /* ========= フィルタ ========= */
+        function getActivePrefPolygons() {
+            const selectedRegions = new Set(getSelectedRegions()); const vibe = getVibe(); const loc = getLocation();
+            return PREF_FEATURES.filter(f => {
+                if (!(f._region && selectedRegions.has(f._region))) return false;
+                const base = f._baseName;
+                if (vibe === 'urban' && !URBAN_PREFS.has(base)) return false;
+                if (vibe === 'nature' && URBAN_PREFS.has(base)) return false;
+                if (loc === 'coastal' && !COASTAL_PREFS.has(base)) return false;
+                if (loc === 'inland' && COASTAL_PREFS.has(base)) return false;
+                return true;
+            });
+        }
+
+        /* ========= ランダム点 ========= */
+        function pickPrefByArea(features) {
+            const weights = features.map(f => Math.max(1, turf.area(f))); const sum = weights.reduce((a, b) => a + b, 0);
+            let r = Math.random() * sum; for (let i = 0; i < features.length; i++) { if ((r -= weights[i]) <= 0) return features[i]; }
+            return features[features.length - 1];
+        }
+        function minDistanceToBoundaryKm(pt, boundaryLines) {
+            if (!boundaryLines || !boundaryLines.length) return Infinity;
+            let min = Infinity;
+            for (const line of boundaryLines) {
+                const d = turf.pointToLineDistance(pt, line, { units: 'kilometers' });
+                if (d < min) min = d;
+            }
+            return min;
+        }
+        function randomPointInPolygon(feature, options = {}) {
+            const { mode = null, maxTry = 200 } = options;
+            const b = feature._bbox || turf.bbox(feature);
+            let bestPt = null, bestScore = Infinity;
+
+            for (let i = 0; i < maxTry; i++) {
+                const pt = turf.point([Math.random() * (b[2] - b[0]) + b[0], Math.random() * (b[3] - b[1]) + b[1]]);
+                if (!turf.booleanPointInPolygon(pt, feature)) continue;
+
+                if (mode === 'coastal' || mode === 'inland') {
+                    const d = minDistanceToBoundaryKm(pt, feature._boundaryLines);
+                    if (mode === 'coastal') {
+                        if (d <= 5 && isSeaSideForFeature(feature, pt)) return pt;
+                        const score = (isSeaSideForFeature(feature, pt) ? d : d + 100);
+                        if (score < bestScore) { bestScore = score; bestPt = pt; }
+                    } else {
+                        if (d >= 15) return pt;
+                        const score = Math.abs(15 - d);
+                        if (score < bestScore) { bestScore = score; bestPt = pt; }
+                    }
+                } else {
+                    return pt;
+                }
+            }
+            return bestPt || turf.point(feature._center || turf.centerOfMass(feature).geometry.coordinates);
+        }
+
+        /* ========= アドレス階層 ========= */
+        function toAdminLevels(addr) {
+            const state = addr.state || addr.region || addr.province;
+            const ward = addr.city_district || addr.borough || addr.ward;
+            const city = addr.city || addr.town || addr.village || addr.municipality;
+            const county = addr.county && (!String(city || '').includes(addr.county)) ? addr.county : null;
+            const suburb = addr.suburb || addr.neighbourhood || addr.quarter;
+            const hamlet = addr.hamlet || addr.locality;
+            const arr = []; if (state) arr.push({ label: state }); if (city) arr.push({ label: city }); if (ward) arr.push({ label: ward }); if (county) arr.push({ label: county }); if (suburb) arr.push({ label: suburb }); if (hamlet) arr.push({ label: hamlet });
+            return arr;
+        }
+        function pickPrefCity(addr) {
+            const state = addr.state || addr.region || addr.province || '';
+            const city = addr.city || addr.town || addr.village || addr.municipality || '';
+            const ward = addr.city_district || addr.ward || '';
+            const cityLike = city || ward; // 区だけ返るケース対策
+            return { state, city: cityLike };
+        }
+
+        /* ========= コンフェッティ ========= */
+        function boomConfetti(lat, lng) {
+            const layerPoint = map.latLngToContainerPoint([lat, lng]);
+            const root = document.getElementById('confetti'); const frag = document.createDocumentFragment();
+            const colors = ['#f43f5e', '#f59e0b', '#22c55e', '#06b6d4', '#8b5cf6', '#ef4444', '#eab308'];
+            for (let i = 0; i < TIMING.confettiCount; i++) {
+                const piece = document.createElement('i'); const x = layerPoint.x + (Math.random() * 80 - 40); const y = layerPoint.y + (Math.random() * 20 - 10);
+                piece.style.setProperty('--x', x + 'px'); piece.style.setProperty('--y', y + 'px'); piece.style.setProperty('--drift', (Math.random() * 120 - 60) + 'px');
+                piece.style.left = '0px'; piece.style.top = '0px'; piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+                frag.appendChild(piece); setTimeout(() => piece.remove(), 2000);
+            }
+            root.appendChild(frag);
+        }
+        function escapeHtml(s) { return s.replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch])) }
+
+        /* ========= シート表示群 ========= */
+        function renderSpotsByPrefBase(baseName, originLatLng, adminCity) {
+            const pref = PREFS.find(p => p.name === baseName);
+            const spotsEl = document.getElementById('spots'); spotsEl.innerHTML = '';
+            const foodsEl = document.getElementById('foods'); foodsEl.innerHTML = '';
+            if (pref) {
+                (async () => {
+                    for (let i = 0; i < pref.spots.length; i++) {
+                        const s = pref.spots[i];
+                        const card = document.createElement('div'); card.className = 'card';
+                        const id = `spot-time-${i}-${Date.now()}`;
+                        card.innerHTML = `<h4>📍 ${i + 1}. ${escapeHtml(s)}</h4>
+                        <p><a href="https://www.google.com/search?q=${encodeURIComponent(pref.name + ' ' + s)}" target="_blank" rel="noreferrer">Googleで見る ↗</a></p>
+                        <div class="time" id="${id}">🚗 所要時間: 計算中…</div>`;
+                        spotsEl.appendChild(card);
+                        try {
+                            const q = `${pref.name} ${s}`; const dest = await geocodeJa(q);
+                            let txt = '—'; if (dest) { const sec = await driveDurationSeconds({ lat: originLatLng.lat, lng: originLatLng.lng }, dest); txt = fmtMinutes(sec); }
+                            const el = document.getElementById(id); if (el) el.textContent = `🚗 所要時間: 約 ${txt}`;
+                        } catch { const el = document.getElementById(id); if (el) el.textContent = `🚗 所要時間: —`; }
+                        finally { document.getElementById('nominatimAttribution').hidden = false; }
+                    }
+                })();
+
+                const list = FOODS[baseName] || [];
+                const slug = TABELOG_PREF_SLUG[baseName];
+                if (list.length && slug) {
+                    list.forEach((name, idx) => {
+                        const card = document.createElement('div'); card.className = 'card';
+                        const areaSa = adminCity || '全域';
+                        /* ▼▼ ここだけ変更：食べログの「ランキング」並びになるようパラメータを追加 ▼▼ */
+                        const tabeUrl =
+                            `https://tabelog.com/${slug}/rstLst/?vs=2&sa=${encodeURIComponent(areaSa)}&sk=${encodeURIComponent(name)}&sw=${encodeURIComponent(name)}&SrtT=rt&sort_mode=1`;
+                        /* ▲▲ ここだけ変更 ▲▲ */
+
+                        card.innerHTML = `<h4>🍜 ${idx + 1}. ${escapeHtml(name)}</h4>
+                        <p><a href="${tabeUrl}" target="_blank" rel="noreferrer">食べログ（ランキング）でお店を探す ↗</a></p>`;
+                        foodsEl.appendChild(card);
+                    });
+                } else {
+                    foodsEl.innerHTML = `<div class="card"><h4>🍜 データ準備中</h4><p>この都道府県のグルメは今後追加します。</p></div>`;
+                }
+
+                document.getElementById('pickedPref').textContent = toFullJP(pref.name);
+                document.getElementById('pickedRegion').textContent = pref.region;
+            } else {
+                document.getElementById('pickedPref').textContent = toFullJP(baseName || '—');
+                document.getElementById('pickedRegion').textContent = '—';
+                spotsEl.innerHTML = `<div class="card"><h4>データ準備中</h4><p>この都道府県のスポット候補は今後追加します。</p></div>`;
+                foodsEl.innerHTML = `<div class="card"><h4>🍜 データ準備中</h4></div>`;
+            }
+        }
+        function openSheet() { document.getElementById('sheet').classList.add('show'); }
+        function closeSheet() { document.getElementById('sheet').classList.remove('show'); }
+
+        function renderAdminChips(levels, lat, lng) {
+            const wrap = document.getElementById('adminPath'); wrap.innerHTML = '';
+            if (!levels || !levels.length) { const d = document.createElement('div'); d.className = 'pill'; d.textContent = '住所を取得できませんでした'; wrap.appendChild(d); }
+            else { levels.forEach(l => { const e = document.createElement('div'); e.className = 'pill'; e.textContent = l.label; wrap.appendChild(e); }); }
+            document.getElementById('nominatimAttribution').hidden = false;
+            const osmLink = document.createElement('a');
+            osmLink.href = `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=14/${lat}/${lng}`; osmLink.target = '_blank'; osmLink.rel = 'noreferrer';
+            osmLink.textContent = '↗ OSMで位置を見る'; osmLink.style.marginLeft = '8px'; osmLink.style.fontSize = '12px'; osmLink.style.color = '#0b3a5c'; osmLink.style.textDecoration = 'none';
+            wrap.appendChild(osmLink);
+        }
+
+        /* ========= 演出シーケンス ========= */
+        const REGION_BOX = {
+            '北海道': { minLat: 41.3, maxLat: 45.7, minLng: 139.0, maxLng: 146.2 },
+            '東北': { minLat: 37.0, maxLat: 41.6, minLng: 138.5, maxLng: 143.0 },
+            '関東': { minLat: 34.8, maxLat: 37.7, minLng: 138.7, maxLng: 141.5 },
+            '中部': { minLat: 33.8, maxLat: 38.4, minLng: 135.8, maxLng: 140.2 },
+            '近畿': { minLat: 33.3, maxLat: 35.9, minLng: 134.2, maxLng: 137.2 },
+            '中国': { minLat: 33.8, maxLat: 36.0, minLng: 130.7, maxLng: 135.0 },
+            '四国': { minLat: 32.8, maxLat: 34.9, minLng: 131.8, maxLng: 135.2 },
+            '九州・沖縄': { minLat: 24.0, maxLat: 34.1, minLng: 122.8, maxLng: 132.3 },
+        };
+
+        let animating = false;
+        let lastPin = null; // {lat,lng, addr, prefBase, cityName}
+        const throwBtn = document.getElementById('throwBtn');
+        throwBtn.addEventListener('click', async () => {
+            if (animating) return;
+            if (!PREF_FEATURES.length) { shake(throwBtn); return; }
+            const candidates = getActivePrefPolygons();
+            if (!candidates.length) { shake(throwBtn); return; }
+
+            animating = true; throwBtn.disabled = true;
+            closeSheet(); if (marker) { map.removeLayer(marker); }
+            disableInteractions(true);
+
+            try {
+                const picked = pickPrefByArea(candidates);
+                const locPref = getLocation();
+                const pt = randomPointInPolygon(picked, { mode: locPref });
+                const [lng, lat] = pt.geometry.coordinates;
+
+                await flyToCenter([36.0, 137.0], 5, TIMING.flyOutMs);
+                await pause(TIMING.pauseAfterOut);
+
+                const box = REGION_BOX[picked._region];
+                if (box) { await flyBounds([[box.minLat, box.minLng], [box.maxLat, box.maxLng]], TIMING.flyToRegionMs); }
+                else { await flyToCenter([lat, lng], 7, TIMING.flyToRegionMs); }
+
+                await pause(TIMING.pauseBeforePin);
+
+                marker = L.marker([lat, lng], { icon: makeDartIcon() }).addTo(map);
+                boomConfetti(lat, lng);
+                const addr = await reverseGeocodeJa(lat, lng).catch(() => ({}));
+                const { state, city } = pickPrefCity(addr);
+                await pause(TIMING.pinDropMs);
+
+                const b = picked._bbox; await flyBounds([[b[1], b[0]], [b[3], b[2]]], TIMING.zoomToPrefMs);
+                await flyToCenter([lat, lng], 12.5, TIMING.zoomToPinMs);
+
+                renderSpotsByPrefBase(picked._baseName, { lat, lng }, city);
+                renderAdminChips(toAdminLevels(addr), lat, lng);
+                setTimeout(() => openSheet(), TIMING.sheetDelayMs);
+
+                lastPin = { lat, lng, addr, prefBase: picked._baseName, cityName: city || '' };
+            } catch (err) {
+                console.error('throw sequence error:', err);
+                alert('すみません、ダーツ演出でエラーが起きました。もう一度お試しください。');
+            } finally {
+                disableInteractions(false);
+                throwBtn.disabled = false;
+                animating = false;
+            }
+        });
+        document.getElementById('againBtn').addEventListener('click', () => document.getElementById('throwBtn').click());
+
+        /* ========= 詳細オーバーレイ ========= */
+        const detailEl = document.getElementById('detail');
+        document.getElementById('decideBtn').addEventListener('click', async () => {
+            if (!lastPin) { shake(document.getElementById('decideBtn')); return; }
+            const origin = { lat: 35.681236, lng: 139.767125 }; // 東京駅
+            const dest = { lat: lastPin.lat, lng: lastPin.lng };
+
+            const rbox = document.getElementById('routeInfo');
+            rbox.innerHTML = `<div>🚗 車（概算）: 計算中…</div>`;
+            const info = await driveInfo(origin, dest);
+            if (info) { rbox.innerHTML = `<div>🚗 車（概算）: 約 ${fmtMinutes(info.duration)}（距離 ${fmtKm(info.distance)}）</div>`; }
+            else { rbox.innerHTML = `<div>🚗 車（概算）: —</div>`; }
+
+            const a = lastPin.addr || {};
+            const { state, city } = pickPrefCity(a);
+            const words = (state && city) ? `${state} ${city}` : (state || city || '');
+            const qRakuten = encodeURIComponent(words);
+            const qAirbnb = encodeURIComponent(words);
+
+            const rakuten = `https://kw.travel.rakuten.co.jp/keyword/Search.do?charset=utf-8&f_max=30&l-id=topC_search_keyword&f_query=${qRakuten}`;
+            const airbnb = `https://www.airbnb.jp/s/${qAirbnb}/homes?search_mode=flex_destinations_search&refinement_paths%5B%5D=%2Fhomes&adults=2&children=0`;
+
+            const routeLinks = document.getElementById('routeLinks');
+            const gmapDrive = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent('東京駅')}&destination=${dest.lat},${dest.lng}&travelmode=driving`;
+            const gmapTransit = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent('東京駅')}&destination=${dest.lat},${dest.lng}&travelmode=transit`;
+            routeLinks.innerHTML = `
+    <a class="btn-mini" target="_blank" rel="noreferrer" href="${gmapDrive}">🚗 Googleマップ（車）</a>
+    <a class="btn-mini" target="_blank" rel="noreferrer" href="${gmapTransit}">🚆 Googleマップ（電車）</a>
+  `;
+
+            document.getElementById('hotelLinks').innerHTML = `
+    <a class="btn-mini" target="_blank" rel="noreferrer" href="${rakuten}">🧳 Rakuten Travel（${escapeHtml(words)}）</a>
+    <a class="btn-mini" target="_blank" rel="noreferrer" href="${airbnb}">🏡 Airbnb（${escapeHtml(words)}）</a>
+  `;
+
+            // エリア情報
+            const ward = a.city_district || a.ward || '';
+            document.getElementById('areaInfo').innerHTML = `
+    <div>🗾 都道府県: ${escapeHtml(state || '(不明)')}</div>
+    <div>🏙 市区町村: ${escapeHtml(city || '(不明)')}${ward ? '（' + escapeHtml(ward) + '）' : ''}</div>
+    <div>📍 座標: ${dest.lat.toFixed(5)}, ${dest.lng.toFixed(5)}</div>
+  `;
+
+            /* 天気・SNSのみ */
+            setupWeather(dest.lat, dest.lng);
+            setupSNS(state, city);
+
+            detailEl.classList.add('show');
+        });
+        document.getElementById('detailClose').addEventListener('click', () => detailEl.classList.remove('show'));
+        detailEl.addEventListener('click', (e) => { if (e.target === detailEl) detailEl.classList.remove('show'); });
+
+        /* ========= 天気：Open‑Meteo（絵文字追加・ビジュアル改善） ========= */
+        const WCODE = {
+            0: ['快晴', '☀️'], 1: ['晴れ', '☀️'], 2: ['薄曇り', '⛅️'], 3: ['曇り', '☁️'],
+            45: ['霧', '☁️'], 48: ['着氷性霧', '☁️'],
+            51: ['霧雨(弱)', '☔'], 53: ['霧雨(中)', '☔'], 55: ['霧雨(強)', '☔'],
+            61: ['雨(弱)', '☔'], 63: ['雨(中)', '☔'], 65: ['雨(強)', '☔'],
+            66: ['凍雨(弱)', '☔'], 67: ['凍雨(強)', '☔'],
+            71: ['雪(弱)', '⛄'], 73: ['雪(中)', '⛄'], 75: ['雪(強)', '⛄'],
+            77: ['雪片', '⛄'],
+            80: ['にわか雨(弱)', '⛄'], 81: ['にわか雨(中)', '⛄'], 82: ['にわか雨(強)', '⛄'],
+            85: ['にわか雪(弱)', '⛄'], 86: ['にわか雪(強)', '⛄'],
+            95: ['雷雨(弱〜中)', '⚡'], 96: ['雷雨(雹あり弱)', '⚡'], 99: ['雷雨(雹あり強)', '⚡']
+        };
+        function wxEmoji(code) { return (WCODE[code] && WCODE[code][1]) || '🗺'; }
+        function wxText(code) { return (WCODE[code] && WCODE[code][0]) || `天気コード${code}`; }
+        function ymdToJa(iso) { try { const d = new Date(iso); return `${d.getMonth() + 1}/${d.getDate()}(${['日', '月', '火', '水', '木', '金', '土'][d.getDay()]})`; } catch { return iso; } }
+
+        async function setupWeather(lat, lng) {
+            const nowEl = document.getElementById('weatherNow');
+            const dailyEl = document.getElementById('weatherDaily');
+            nowEl.textContent = '取得中…'; dailyEl.textContent = '';
+
+            try {
+                const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current_weather=true&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=Asia%2FTokyo`;
+                const res = await fetch(url);
+                if (!res.ok) { nowEl.textContent = '取得に失敗しました'; return; }
+                const data = await res.json();
+                const cw = data.current_weather || {};
+                const code = cw.weathercode;
+                const emoji = wxEmoji(code);
+                const text = wxText(code);
+                nowEl.innerHTML = `<span class="wx-emoji">${emoji}</span><span>現在: ${cw.temperature != null ? `${Math.round(cw.temperature)}°C` : '—'}・${text}</span>`;
+
+                const d = data.daily || {};
+                const n = Math.min(3, (d.time || []).length);
+                let html = '';
+                for (let i = 0; i < n; i++) {
+                    const date = d.time[i];
+                    const tmax = d.temperature_2m_max?.[i];
+                    const tmin = d.temperature_2m_min?.[i];
+                    const pr = d.precipitation_sum?.[i];
+                    const e = wxEmoji(d.weathercode?.[i]);
+                    const label = wxText(d.weathercode?.[i]);
+                    html += `
+        <div class="wx-card">
+          <div class="wx-emoji">${e}</div>
+          <div>
+            <div class="wx-date">${ymdToJa(date)}</div>
+            <div class="wx-temp">${Math.round(tmin)}° / ${Math.round(tmax)}°・降水 ${Math.round(pr)}mm ・ ${label}</div>
+          </div>
+        </div>`;
+                }
+                dailyEl.innerHTML = html || '—';
+            } catch (e) {
+                nowEl.textContent = 'ネットワークエラー';
+            }
+        }
+
+        /* ========= SNS：Instagram ハッシュタグ ========= */
+        function hashtagLinks(state, city) {
+            const base = (state || '').replace(/\s+/g, '');
+            const muni = (city || '').replace(/\s+/g, '');
+            const tags = [];
+            if (muni) { tags.push(`${muni}観光`, `${muni}グルメ`, `${muni}旅行`); }
+            if (base) { tags.push(`${base}観光`, `${base}グルメ`); }
+            return Array.from(new Set(tags)).map(t => ({
+                tag: t,
+                url: `https://www.instagram.com/explore/tags/${encodeURIComponent(t)}/`
+            }));
+        }
+        function setupSNS(state, city) {
+            const box = document.getElementById('snsLinks');
+            const tags = hashtagLinks(state, city);
+            if (!tags.length) { box.innerHTML = '<span style="font-size:13px; opacity:.75">該当ハッシュタグを作成できませんでした</span>'; return; }
+            box.innerHTML = tags.map(t => `<a class="btn-mini" target="_blank" rel="noreferrer" href="${t.url}">#${escapeHtml(t.tag)}</a>`).join('');
+        }
+
+        /* ========= ユーティリティ ========= */
+        function pause(ms) { return new Promise(res => setTimeout(res, ms)); }
+        function flyToCenter(latlng, zoom, ms) { return new Promise(res => { map.flyTo(latlng, zoom, { duration: ms / 1000, animate: true, easeLinearity: 0.2, noMoveStart: false }); setTimeout(res, ms); }); }
+        function flyBounds(bounds, ms) { return new Promise(res => { map.flyToBounds(bounds, { padding: [40, 40], maxZoom: 11, animate: true, duration: ms / 1000, easeLinearity: 0.2 }); setTimeout(res, ms); }); }
+        function disableInteractions(disable) { const fn = disable ? 'disable' : 'enable'; map.scrollWheelZoom[fn](); map.dragging[fn](); map.doubleClickZoom[fn](); map.boxZoom[fn](); map.keyboard[fn](); }
+        function shake(el) { el.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'translateX(-3px)' }, { transform: 'translateX(3px)' }, { transform: 'translateX(0)' }], { duration: 320, iterations: 1, easing: 'ease-in-out' }); }
+    </script>
+</body>
+
+</html>
